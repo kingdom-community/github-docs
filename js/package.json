@@ -1,0 +1,57 @@
+{
+  "name": "@kingdom-community/github-docs",
+  "version": "0.1.0",
+  "description": "Read a community's documentation out of a GitHub repository: fetch markdown for rendering, with every failure returned as a value and nothing upstream ever quoted back.",
+  "license": "MIT",
+  "author": "Daniel McCoy Stephenson",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingdom-community/github-docs.git",
+    "directory": "js"
+  },
+  "bugs": {
+    "url": "https://github.com/kingdom-community/github-docs/issues"
+  },
+  "homepage": "https://github.com/kingdom-community/github-docs/tree/main/js#readme",
+  "keywords": [
+    "github",
+    "markdown",
+    "documentation",
+    "docs-as-code",
+    "community",
+    "content",
+    "typescript"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
