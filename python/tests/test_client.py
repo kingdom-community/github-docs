@@ -23,7 +23,17 @@ from github_docs import (
 )
 
 REPO = "acme-guild/handbook"
-TOKEN = "ghp_a1b2c3d4e5f6g7h8i9j0_secretvalue"
+# The stand-in secret handed to the client. The leak tests assert this exact
+# string never reaches a returned value, a URL or an error message.
+#
+# Deliberately NOT shaped like a real credential: no `ghp_` / `gho_` /
+# `github_pat_` prefix and no random-looking entropy, because this repo is
+# public and a realistic-looking literal trips GitHub secret scanning, which
+# files a false-positive alert and can block pushes that touch this line. The
+# assertions only need a distinctive, greppable sentinel to look for, and this
+# string is exactly as good at that job. Please do not "fix" it back into
+# something that looks authentic.
+TOKEN = "sentinel-not-a-real-credential-leak-canary"
 ROOTS = ("handbook", "policies", "players")
 
 
