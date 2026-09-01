@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+*.tgz
+npm-debug.log*
+.npm/
+
+# Python
+__pycache__/
+*.py[cod]
+build/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
