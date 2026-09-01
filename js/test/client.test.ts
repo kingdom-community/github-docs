@@ -5,11 +5,19 @@ import {createDocsClient, type MarkdownFetch} from '../src/client';
 const REPO = 'acme-guild/handbook';
 const DOCS = ['handbook/rules.md', 'handbook/getting-started.md'];
 
-// A credential-shaped string, and a body that quotes it back. A real GitHub
-// error body does not echo the credential, but an upstream that did — a
+// The stand-in secret, and a body that quotes it back. A real GitHub error
+// body does not echo the credential, but an upstream that did — a
 // misconfigured proxy, a future API, an intermediary — must not be able to
 // launder it through this package.
-const TOKEN = 'ghp_a1b2c3d4e5f6g7h8i9j0_secretvalue';
+//
+// Deliberately NOT shaped like a real credential: no `ghp_` / `gho_` /
+// `github_pat_` prefix and no random-looking entropy, because this repo is
+// public and a realistic-looking literal trips GitHub secret scanning, which
+// files a false-positive alert and can block pushes that touch this line. The
+// leak assertions only need a distinctive, greppable sentinel to look for, and
+// this string is exactly as good at that job. Please do not "fix" it back into
+// something that looks authentic.
+const TOKEN = 'sentinel-not-a-real-credential-leak-canary';
 const LEAKY_BODY = `{"message":"Bad credentials: ${TOKEN}","documentation_url":"https://docs.github.com/rest"}`;
 
 const okResponse = (text: string): Response =>
