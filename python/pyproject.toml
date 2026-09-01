@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "github-docs"
+version = "0.1.0"
+description = "Land documentation edits in a GitHub repository as pull requests, never as direct pushes. Standard library only."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Daniel McCoy Stephenson", email = "dmccoystephenson@gmail.com"}]
+keywords = ["github", "documentation", "docs-as-code", "markdown", "pull-request", "community"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Documentation",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Typing :: Typed",
+]
+# Standard library only, deliberately: this drops into a stdlib-first service
+# without dragging a dependency tree behind it.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/kingdom-community/github-docs"
+Repository = "https://github.com/kingdom-community/github-docs"
+Issues = "https://github.com/kingdom-community/github-docs/issues"
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+github_docs = ["py.typed"]

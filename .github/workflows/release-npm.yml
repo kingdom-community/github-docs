@@ -1,0 +1,39 @@
+name: Release (npm)
+
+# Manual only. A release is a decision, not a side effect of a merge.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'npm dist-tag to publish under'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+  id-token: write  # npm provenance
+
+jobs:
+  publish:
+    name: Publish @kingdom-community/github-docs
+    runs-on: ubuntu-latest
+    environment: npm
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - run: npm ci
+      # Never publish something that was not just proven to build and pass.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --provenance --access public --tag "${{ inputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
