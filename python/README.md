@@ -134,7 +134,8 @@ a control that depends on somebody else's behaviour is not a control.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v
+# from python/, with src/ on the path — or after `pip install -e .`
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
 The tests mock `urllib.request.urlopen` with a small fake GitHub API keyed on

@@ -111,10 +111,10 @@ this community's docs work" from drifting apart.
 
 ```bash
 # read side
-cd js && npm install && npm test
+(cd js && npm install && npm test)
 
 # write side
-cd python && python3 -m unittest discover -s tests -v
+(cd python && PYTHONPATH=src python3 -m unittest discover -s tests -v)
 ```
 
 CI runs both on every push and pull request.

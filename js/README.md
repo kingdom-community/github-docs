@@ -122,7 +122,7 @@ docs.resolveLink('rules.md', 'handbook/getting-started.md');
 
 | Option | Default | What it does |
 |---|---|---|
-| `repo` | *(required)* | `owner/repo`, or a GitHub URL. Validated when the client is built — the only place this package throws. |
+| `repo` | *(required)* | `owner/repo`, or a GitHub URL. Validated when the client is built, and an unusable value throws there. (`webUrl` and `rawUrl` also throw, for a target that is not in the catalogue; `fetchMarkdown` returns `not-listed` instead.) |
 | `ref` | `'HEAD'` | The git ref to read. `HEAD` resolves to the default branch whatever it is called. |
 | `token` | none | A read token, for a private repository. Omit for a public one. |
 | `transport` | `'api'` with a token, `'raw'` without | Contents API vs `raw.githubusercontent.com`. |
