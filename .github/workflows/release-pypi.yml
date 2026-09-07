@@ -1,18 +1,28 @@
 name: Release (PyPI)
 
 # Manual only. A release is a decision, not a side effect of a merge.
+#
+# The default is a rehearsal. `dry_run` is true unless it is deliberately
+# turned off, so a dispatch builds, tests and checks the distributions and then
+# stops short of the upload. A PyPI version number can never be reused - a
+# wrong 0.1.0 can only be yanked, never replaced - so the first run is worth
+# rehearsing. The publish job is a separate job so that the `pypi` environment
+# is only entered by a run that actually uploads.
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and check the distributions without publishing'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
-  id-token: write  # PyPI trusted publishing
 
 jobs:
-  publish:
-    name: Publish github-docs
+  build:
+    name: Build github-docs
     runs-on: ubuntu-latest
-    environment: pypi
     defaults:
       run:
         working-directory: python
@@ -21,13 +31,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install --upgrade pip build
+      - run: python -m pip install --upgrade pip build twine
       - run: python -m pip install .
       # Never publish something that was not just proven to pass.
       - run: python -m unittest discover -s tests -v
       - run: python -m build
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: python/dist/
+      - name: Report (dry run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "Dry run: nothing was uploaded to PyPI."
+          echo "These distributions would have been published:"
+          ls -l dist
+
+  publish:
+    name: Publish github-docs
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI trusted publishing
+    steps:
+      # The distributions that were built and checked, not a fresh build.
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
       # Trusted publishing: configure this repo + workflow as a publisher on
       # PyPI, and no long-lived API token has to exist anywhere.
       - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: python/dist
