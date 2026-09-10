@@ -227,8 +227,11 @@ class TestRequestPlumbing(unittest.TestCase):
     def test_an_empty_response_body_is_not_a_json_parse_failure(self):
         # Several GitHub endpoints answer with no body at all.
         client = make_client()
-        with mock.patch("urllib.request.urlopen", return_value=_response(None, status=201, raw=b"")):
+        urlopen = mock.MagicMock(return_value=_response(None, status=201, raw=b""))
+        with mock.patch("urllib.request.urlopen", urlopen):
             client.create_ref("docs-edit/handbook-example.md", "sha-on-main")
+        sent = json.loads(urlopen.call_args[0][0].data)
+        self.assertEqual(sent["ref"], "refs/heads/docs-edit/handbook-example.md")
 
 
 class TestManagedPaths(unittest.TestCase):
@@ -511,7 +514,9 @@ class TestErrorSurface(unittest.TestCase):
         # A proxy or a gateway in front of GitHub answers with HTML. There is no
         # `message` field to surface, and the body itself is not quoted back --
         # an operator gets the status, which is the part that is actionable.
-        error = _http_error(code=502, raw=b"<html><body>502 Bad Gateway</body></html>")
+        error = _http_error(
+            code=502, message="Bad Gateway", raw=b"<html><body>502 Bad Gateway</body></html>"
+        )
         with mock.patch("urllib.request.urlopen", side_effect=error):
             with self.assertRaises(GitHubDocsError) as ctx:
                 self.client.get_default_branch()
