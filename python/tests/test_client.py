@@ -43,18 +43,23 @@ def make_client(**overrides) -> GitHubDocsClient:
     return GitHubDocsClient(GitHubDocsConfig(**settings))
 
 
-def _response(payload, status=200):
+def _response(payload, status=200, raw=None):
     resp = mock.MagicMock()
-    resp.read.return_value = json.dumps(payload).encode()
+    # `raw` overrides the JSON envelope, for the endpoints that answer with no
+    # body at all.
+    resp.read.return_value = json.dumps(payload).encode() if raw is None else raw
     resp.status = status
     resp.__enter__.return_value = resp
     resp.__exit__.return_value = False
     return resp
 
 
-def _http_error(code=404, message="Not Found"):
+def _http_error(code=404, message="Not Found", raw=None):
     err = urllib.error.HTTPError(url="x", code=code, msg=message, hdrs=None, fp=None)
-    err.read = mock.MagicMock(return_value=json.dumps({"message": message}).encode())
+    # `raw` overrides GitHub's JSON envelope, for the gateways in front of it
+    # that answer with something else.
+    payload = json.dumps({"message": message}).encode() if raw is None else raw
+    err.read = mock.MagicMock(return_value=payload)
     return err
 
 
@@ -75,11 +80,21 @@ class FakeGitHub:
         self.put_calls = []
         self.created_prs = []
         self.requests = []  # (method, full_url, headers)
+        self.timeouts = []  # the timeout urlopen was called with, per request
+        self.tree = [
+            {"type": "blob", "path": "handbook/b.md", "sha": "s2", "size": 20},
+            {"type": "blob", "path": "handbook/a.md", "sha": "s1", "size": 10},
+            {"type": "blob", "path": "handbook/logo.png", "sha": "s3", "size": 30},
+            {"type": "blob", "path": "infrastructure/main.tf", "sha": "s4", "size": 40},
+            {"type": "blob", "path": "README.md", "sha": "s5", "size": 50},
+            {"type": "tree", "path": "handbook", "sha": "s6"},
+        ]
 
     def __call__(self, req, timeout=None):
         method = req.get_method()
         url = req.full_url.split("?", 1)[0]
         self.requests.append((method, req.full_url, dict(req.headers)))
+        self.timeouts.append(timeout)
 
         if method == "GET" and url.endswith(f"/repos/{REPO}"):
             return _response({"default_branch": self.default_branch})
@@ -93,18 +108,7 @@ class FakeGitHub:
             raise _http_error()
 
         if method == "GET" and "/git/trees/" in url:
-            return _response(
-                {
-                    "tree": [
-                        {"type": "blob", "path": "handbook/b.md", "sha": "s2", "size": 20},
-                        {"type": "blob", "path": "handbook/a.md", "sha": "s1", "size": 10},
-                        {"type": "blob", "path": "handbook/logo.png", "sha": "s3", "size": 30},
-                        {"type": "blob", "path": "infrastructure/main.tf", "sha": "s4", "size": 40},
-                        {"type": "blob", "path": "README.md", "sha": "s5", "size": 50},
-                        {"type": "tree", "path": "handbook", "sha": "s6"},
-                    ]
-                }
-            )
+            return _response({"tree": self.tree})
 
         if method == "POST" and url.endswith("/git/refs"):
             body = json.loads(req.data)
@@ -150,6 +154,24 @@ class TestConfig(unittest.TestCase):
     def test_owner_is_the_first_half(self):
         self.assertEqual(GitHubDocsConfig(repo=REPO, token=TOKEN).owner, "acme-guild")
 
+    def test_tidies_the_slashes_and_spaces_a_human_leaves_on_a_root(self):
+        config = GitHubDocsConfig(
+            repo=REPO, token=TOKEN, allowed_roots=("/handbook/", "  policies  ")
+        )
+        self.assertEqual(config.allowed_roots, ("handbook", "policies"))
+
+    def test_a_root_that_normalises_to_nothing_is_dropped_rather_than_kept(self):
+        # A blank entry left behind by a split on an empty environment variable
+        # would otherwise normalise to "", and "" is a prefix of every path.
+        config = GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=("handbook", "", "  ", "/"))
+        self.assertEqual(config.allowed_roots, ("handbook",))
+
+    def test_normalisation_leaves_none_alone(self):
+        # None and () mean opposite things, so neither may be turned into the
+        # other on the way through __post_init__.
+        self.assertIsNone(GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=None).allowed_roots)
+        self.assertEqual(GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=()).allowed_roots, ())
+
 
 class TestNoTokenConfigured(unittest.TestCase):
     def test_raises_a_clear_error_when_the_token_is_missing(self):
@@ -161,6 +183,52 @@ class TestNoTokenConfigured(unittest.TestCase):
         # An error that says only "401" leaves an operator guessing; this one
         # names the missing thing and what it disables.
         self.assertIn("document editing is disabled", message)
+
+
+class TestRequestPlumbing(unittest.TestCase):
+    """The parts of _request every other method inherits."""
+
+    def test_api_base_is_honoured_for_a_github_enterprise_install(self):
+        client = make_client(api_base="https://ghe.example.internal/api/v3")
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            client.get_default_branch()
+        self.assertEqual(
+            fake.requests[0][1], f"https://ghe.example.internal/api/v3/repos/{REPO}"
+        )
+
+    def test_a_trailing_slash_on_api_base_does_not_become_a_double_slash(self):
+        client = make_client(api_base="https://ghe.example.internal/api/v3/")
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            client.get_default_branch()
+        self.assertEqual(
+            fake.requests[0][1], f"https://ghe.example.internal/api/v3/repos/{REPO}"
+        )
+
+    def test_the_user_agent_is_sent_and_is_configurable(self):
+        client = make_client(user_agent="acme-staff-app/2.1")
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            client.get_default_branch()
+        # urllib capitalises header names on the Request object.
+        self.assertEqual(fake.requests[0][2].get("User-agent"), "acme-staff-app/2.1")
+
+    def test_every_request_carries_the_configured_timeout(self):
+        # A save is interactive: a request without a deadline hangs a request
+        # thread rather than failing visibly, so no call may go out without one.
+        client = make_client(timeout=1.5)
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            client.save_file("handbook/example.md", "content", "someone")
+        self.assertTrue(fake.timeouts)
+        self.assertEqual(set(fake.timeouts), {1.5})
+
+    def test_an_empty_response_body_is_not_a_json_parse_failure(self):
+        # Several GitHub endpoints answer with no body at all.
+        client = make_client()
+        with mock.patch("urllib.request.urlopen", return_value=_response(None, status=201, raw=b"")):
+            client.create_ref("docs-edit/handbook-example.md", "sha-on-main")
 
 
 class TestManagedPaths(unittest.TestCase):
@@ -208,6 +276,23 @@ class TestManagedPaths(unittest.TestCase):
     def test_save_file_rejects_an_unmanaged_path(self):
         with self.assertRaises(GitHubDocsError):
             self.client.save_file("plugins/README.md", "x", "someone")
+
+    def test_a_root_itself_is_inside_that_root(self):
+        self.assertTrue(self.client.is_managed("handbook"))
+
+    def test_the_refusal_names_where_the_boundary_is_and_carries_a_400(self):
+        # A caller maps .status straight onto its own response, so a path the
+        # operator never allowed has to read as a bad request, not a 502.
+        with self.assertRaises(GitHubDocsError) as ctx:
+            self.client.get_file("infrastructure/main.tf")
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertIn("handbook", str(ctx.exception))
+
+    def test_the_refusal_says_the_repository_when_no_roots_are_configured(self):
+        client = make_client(allowed_roots=None)
+        with self.assertRaises(GitHubDocsError) as ctx:
+            client.get_file("handbook/../infrastructure/main.tf")
+        self.assertIn("outside the repository", str(ctx.exception))
 
     def test_the_gate_runs_before_the_request_not_after(self):
         urlopen = mock.MagicMock()
@@ -258,6 +343,17 @@ class TestListDocuments(unittest.TestCase):
             files = client.list_documents()
         self.assertEqual([f.path for f in files], ["handbook/a.md", "handbook/b.md", "handbook/logo.png"])
 
+    def test_a_tree_entry_without_a_size_lists_as_zero_rather_than_failing(self):
+        # The trees API omits `size` for some entries; a listing is a listing,
+        # and a missing byte count is not a reason to fail the whole call.
+        client = make_client()
+        fake = FakeGitHub(client)
+        fake.tree = [{"type": "blob", "path": "handbook/c.md", "sha": "s7"}]
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            files = client.list_documents()
+        self.assertEqual([f.path for f in files], ["handbook/c.md"])
+        self.assertEqual(files[0].size, 0)
+
 
 class TestGetFile(unittest.TestCase):
     def test_decodes_the_base64_envelope(self):
@@ -266,6 +362,33 @@ class TestGetFile(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=fake):
             doc = client.get_file("handbook/example.md")
         self.assertEqual(doc, Document(path="handbook/example.md", content="old content", sha="filesha-onbranch"))
+
+    def test_refuses_an_envelope_that_is_not_base64(self):
+        # The Contents API answers with `encoding: "none"` for a file too large
+        # to inline. Decoding that as base64 would produce silent nonsense in
+        # the editor, so it is refused instead.
+        client = make_client()
+        envelope = _response({"content": "", "encoding": "none", "sha": "s1"})
+        with mock.patch("urllib.request.urlopen", return_value=envelope):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                client.get_file("handbook/example.md")
+        self.assertIn("unexpected content encoding", str(ctx.exception))
+        self.assertIn("none", str(ctx.exception))
+
+    def test_bytes_that_are_not_utf8_are_replaced_rather_than_raising(self):
+        # A markdown file saved in latin-1 should still open in the editor,
+        # mangled at the bad byte, rather than taking the page down.
+        client = make_client()
+        envelope = _response(
+            {
+                "content": base64.b64encode(b"caf\xe9 latte").decode(),
+                "encoding": "base64",
+                "sha": "s1",
+            }
+        )
+        with mock.patch("urllib.request.urlopen", return_value=envelope):
+            doc = client.get_file("handbook/example.md")
+        self.assertEqual(doc.content, "caf\ufffd latte")
 
 
 class TestSaveFileCreatesBranchAndPr(unittest.TestCase):
@@ -383,6 +506,17 @@ class TestErrorSurface(unittest.TestCase):
                 self.client.get_default_branch()
         self.assertEqual(ctx.exception.status, 404)
         self.assertIn("Not Found", str(ctx.exception))
+
+    def test_a_body_that_is_not_githubs_json_falls_back_to_the_status(self):
+        # A proxy or a gateway in front of GitHub answers with HTML. There is no
+        # `message` field to surface, and the body itself is not quoted back --
+        # an operator gets the status, which is the part that is actionable.
+        error = _http_error(code=502, raw=b"<html><body>502 Bad Gateway</body></html>")
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 502)
+        self.assertEqual(str(ctx.exception), "GitHub API returned HTTP 502")
 
     def test_allow_404_turns_a_missing_ref_into_none_rather_than_an_error(self):
         with mock.patch("urllib.request.urlopen", side_effect=_http_error()):
