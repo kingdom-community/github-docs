@@ -130,6 +130,7 @@ a control that depends on somebody else's behaviour is not a control.
 - `Document`, `DocumentSummary`, `SaveResult` — frozen dataclasses.
 - `GitHubDocsError`
 - `slugify_path(path)`
+- `__version__` — the package version string, matching `pyproject.toml`.
 
 ## Development
 
