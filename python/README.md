@@ -60,16 +60,21 @@ print(result.created)    # False when it added to an existing open PR
 
 ## What a save actually does
 
-1. Look up the repository's default branch and its current tip SHA.
-2. Ensure the per-file branch `docs-edit/<slugified-path>` exists, branching it
-   off the default branch if it does not.
-3. PUT the new content to that branch through the Contents API — one commit,
-   carrying the file's current SHA *on that branch* so the API updates rather
-   than rejecting the write as a conflicting create.
+1. Look up the repository's default branch.
+2. Ensure the per-file branch `docs-edit/<slugified-path>` exists. If it does
+   not, look up the default branch's current tip SHA and branch it off that.
+3. Read the file's current SHA *on that branch*, then PUT the new content to
+   that branch through the Contents API — one commit, carrying that SHA so the
+   API updates rather than rejecting the write as a conflicting create.
 4. Reuse the open PR for that branch if there is one, else open a new one.
 
 Step 4 is what makes repeated saves *update*. The pull request is the review
 mechanism, which is why there is no diff or version UI to build.
+
+Step 3 also means a save edits a file that already exists. A path with no file
+on the branch fails that read, and `save_file` raises `GitHubDocsError` with
+`.status` 404 before anything is committed — though a per-file branch created
+in step 2 is left behind.
 
 The default branch is never written to. That is the whole point: a doc repo
 whose history already goes through review for every change should not grow a
