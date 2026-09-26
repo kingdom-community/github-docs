@@ -9,6 +9,7 @@ Run:  python3 -m unittest discover -s tests -v
 
 import base64
 import json
+import socket
 import unittest
 import urllib.error
 import urllib.parse
@@ -535,6 +536,35 @@ class TestErrorSurface(unittest.TestCase):
                 self.client.get_default_branch()
         self.assertIn("could not reach GitHub", str(ctx.exception))
         self.assertIsNone(ctx.exception.status)
+
+    def test_a_timeout_while_reading_the_body_becomes_a_readable_error(self):
+        # urlopen only wraps a connect timeout in URLError; one raised by
+        # read() arrives as a bare socket.timeout.
+        resp = _response({})
+        resp.read.side_effect = socket.timeout("timed out")
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertIn("could not reach GitHub", str(ctx.exception))
+        self.assertIsNone(ctx.exception.status)
+
+    def test_a_success_body_that_is_not_json_becomes_an_error_with_its_status(self):
+        # The error path already tolerates a non-JSON body; the success path
+        # must too, without quoting the body back.
+        resp = _response(None, raw=b"<html><body>captive portal</body></html>")
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 200)
+        self.assertNotIn("captive portal", str(ctx.exception))
+
+    def test_a_success_body_that_is_not_utf8_becomes_an_error_with_its_status(self):
+        # Undecodable bytes fail before the JSON parser, as a UnicodeDecodeError.
+        resp = _response(None, raw=b"\x80\x81 not text")
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 200)
 
 
 if __name__ == "__main__":
