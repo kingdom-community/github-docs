@@ -15,10 +15,11 @@ stdlib-first service without dragging a dependency tree behind it.
 
 Flow for a save (see :meth:`GitHubDocsClient.save_file`):
 
-  1. Look up the repository's default branch and its current tip SHA.
+  1. Look up the repository's default branch.
   2. Ensure a per-file branch ``<prefix><slugified-path>`` exists, branched off
-     the default branch if it does not yet.
-  3. PUT the new file content to that branch via the Contents API (one commit).
+     the default branch's current tip if it does not yet.
+  3. Read the file's current SHA on that branch, then PUT the new file content
+     to that branch via the Contents API (one commit).
   4. Reuse an existing open PR for that branch if one exists, else open a new
      one. This is what makes repeated saves to the same file *update* rather
      than pile up duplicate PRs: the PR itself is the review mechanism, so no
