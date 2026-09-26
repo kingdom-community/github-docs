@@ -558,6 +558,14 @@ class TestErrorSurface(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 200)
         self.assertNotIn("captive portal", str(ctx.exception))
 
+    def test_a_success_body_that_is_not_utf8_becomes_an_error_with_its_status(self):
+        # Undecodable bytes fail before the JSON parser, as a UnicodeDecodeError.
+        resp = _response(None, raw=b"\x80\x81 not text")
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

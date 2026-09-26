@@ -238,11 +238,13 @@ class GitHubDocsClient:
                 raw = resp.read()
                 try:
                     parsed = json.loads(raw) if raw else {}
-                except json.JSONDecodeError as e:
+                except ValueError as e:
                     # Something in front of GitHub answered 2xx with a page
-                    # rather than JSON. The body is not quoted back, for the
-                    # same reason as on the error path: the status is the
-                    # actionable part.
+                    # rather than JSON. ValueError rather than JSONDecodeError,
+                    # because bytes that are not UTF-8 fail as a
+                    # UnicodeDecodeError before they ever reach the parser. The
+                    # body is not quoted back, for the same reason as on the
+                    # error path: the status is the actionable part.
                     raise GitHubDocsError(
                         self._redact(f"GitHub API returned an undecodable response (HTTP {resp.status})"),
                         status=resp.status,
