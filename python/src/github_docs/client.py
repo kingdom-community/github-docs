@@ -236,7 +236,19 @@ class GitHubDocsClient:
         try:
             with urllib.request.urlopen(req, timeout=self.config.timeout) as resp:
                 raw = resp.read()
-                parsed = json.loads(raw) if raw else {}
+                try:
+                    parsed = json.loads(raw) if raw else {}
+                except ValueError as e:
+                    # Something in front of GitHub answered 2xx with a page
+                    # rather than JSON. ValueError rather than JSONDecodeError,
+                    # because bytes that are not UTF-8 fail as a
+                    # UnicodeDecodeError before they ever reach the parser. The
+                    # body is not quoted back, for the same reason as on the
+                    # error path: the status is the actionable part.
+                    raise GitHubDocsError(
+                        self._redact(f"GitHub API returned an undecodable response (HTTP {resp.status})"),
+                        status=resp.status,
+                    ) from e
                 return resp.status, parsed
         except urllib.error.HTTPError as e:
             raw = e.read()
@@ -252,6 +264,12 @@ class GitHubDocsClient:
             ) from e
         except urllib.error.URLError as e:
             raise GitHubDocsError(self._redact(f"could not reach GitHub: {e.reason}")) from e
+        except OSError as e:
+            # urlopen wraps a failure to connect in URLError, but a timeout or a
+            # reset while the body is being read arrives bare. Both mean the
+            # edit did not land, and the README promises a caller that every
+            # such failure is a GitHubDocsError.
+            raise GitHubDocsError(self._redact(f"could not reach GitHub: {e}")) from e
 
     # -- Paths --------------------------------------------------------------
 
