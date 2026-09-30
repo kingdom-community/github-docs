@@ -251,10 +251,19 @@ class GitHubDocsClient:
                     ) from e
                 return resp.status, parsed
         except urllib.error.HTTPError as e:
-            raw = e.read()
+            # The body is only a nicer message; the status is already in hand.
+            # A read that times out or resets here is raised inside this
+            # handler, where the OSError clause below cannot catch it, so it
+            # falls back to the status-only message instead of escaping.
+            try:
+                raw = e.read()
+            except OSError:
+                raw = b""
+            # ValueError rather than JSONDecodeError, for the same reason as on
+            # the success path: bytes that are not UTF-8 fail before the parser.
             try:
                 parsed = json.loads(raw) if raw else {}
-            except json.JSONDecodeError:
+            except ValueError:
                 parsed = {}
             if e.code == 404 and allow_404:
                 return 404, parsed
