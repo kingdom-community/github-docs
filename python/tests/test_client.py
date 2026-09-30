@@ -524,6 +524,26 @@ class TestErrorSurface(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 502)
         self.assertEqual(str(ctx.exception), "GitHub API returned HTTP 502")
 
+    def test_a_timeout_while_reading_an_error_body_falls_back_to_the_status(self):
+        # The read happens inside the HTTPError handler, where the OSError
+        # clause beside it cannot catch what it raises.
+        error = _http_error(code=503, message="Service Unavailable")
+        error.read.side_effect = socket.timeout("timed out")
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 503)
+        self.assertEqual(str(ctx.exception), "GitHub API returned HTTP 503")
+
+    def test_an_error_body_that_is_not_utf8_falls_back_to_the_status(self):
+        # Undecodable bytes fail as a UnicodeDecodeError, not a JSONDecodeError.
+        error = _http_error(code=502, message="Bad Gateway", raw=b"\x80\x81 not text")
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_default_branch()
+        self.assertEqual(ctx.exception.status, 502)
+        self.assertEqual(str(ctx.exception), "GitHub API returned HTTP 502")
+
     def test_allow_404_turns_a_missing_ref_into_none_rather_than_an_error(self):
         with mock.patch("urllib.request.urlopen", side_effect=_http_error()):
             self.assertIsNone(self.client.get_ref_sha("no-such-branch", allow_404=True))
