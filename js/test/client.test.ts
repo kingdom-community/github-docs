@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 
-import {createDocsClient, type MarkdownFetch} from '../src/client';
+import {createDocsClient, fetchApiMarkdown, fetchRawMarkdown, type MarkdownFetch} from '../src/client';
 
 const REPO = 'acme-guild/handbook';
 const DOCS = ['handbook/rules.md', 'handbook/getting-started.md'];
@@ -97,6 +97,17 @@ describe('failure is a value, not an exception', () => {
             fetchImpl: fetchImpl as never
         });
         await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'unavailable'});
+    });
+
+    it('serves a document of exactly the limit, since the limit is a ceiling and not a cliff edge', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('x'.repeat(100)));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            maxDocumentBytes: 100,
+            fetchImpl: fetchImpl as never
+        });
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: 'x'.repeat(100)});
     });
 
     it('gives up after the timeout by aborting the request', async () => {
@@ -197,6 +208,147 @@ describe('nothing upstream is ever quoted back', () => {
         const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
         expect(url).toContain('raw.githubusercontent.com');
         expect(Object.keys(init.headers as Record<string, string>)).toEqual(['Accept']);
+    });
+
+    it('keeps a configured token away from the raw host when the raw transport is forced', async () => {
+        // A token in the config is not a reason to send it everywhere: the raw
+        // host does not accept one, so an operator who picks `raw` explicitly
+        // must not have the credential travel there anyway.
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            token: TOKEN,
+            transport: 'raw',
+            fetchImpl: fetchImpl as never
+        });
+
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: '# Rules'});
+
+        const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://raw.githubusercontent.com/acme-guild/handbook/HEAD/handbook/rules.md');
+        expect(init.headers).toEqual({Accept: 'text/plain'});
+        expect(JSON.stringify(init.headers)).not.toContain(TOKEN);
+    });
+});
+
+describe('configuration reaches the request', () => {
+    // Each option below is only worth configuring if it changes what is asked
+    // for. A setting that is accepted and then silently dropped would read
+    // HEAD from github.com no matter what an operator wrote.
+    it('reads the configured ref from the raw host', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({repo: REPO, documents: DOCS, ref: ' v1.2 ', fetchImpl: fetchImpl as never});
+
+        await client.fetchMarkdown('rules');
+
+        expect(client.ref).toBe('v1.2');
+        expect(fetchImpl.mock.calls[0][0]).toBe(
+            'https://raw.githubusercontent.com/acme-guild/handbook/v1.2/handbook/rules.md'
+        );
+    });
+
+    it('treats a blank ref as the default branch', () => {
+        expect(createDocsClient({repo: REPO, ref: '   '}).ref).toBe('HEAD');
+    });
+
+    it('passes a non-default ref to the Contents API as a query parameter', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            token: TOKEN,
+            ref: 'release/2026',
+            fetchImpl: fetchImpl as never
+        });
+
+        await client.fetchMarkdown('rules');
+
+        expect(fetchImpl.mock.calls[0][0]).toBe(
+            'https://api.github.com/repos/acme-guild/handbook/contents/handbook/rules.md?ref=release%2F2026'
+        );
+    });
+
+    it('sends API requests to a configured apiBase, for GitHub Enterprise', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            token: TOKEN,
+            apiBase: 'https://ghe.example.com/api/v3/',
+            fetchImpl: fetchImpl as never
+        });
+
+        await client.fetchMarkdown('rules');
+
+        expect(fetchImpl.mock.calls[0][0]).toBe(
+            'https://ghe.example.com/api/v3/repos/acme-guild/handbook/contents/handbook/rules.md'
+        );
+    });
+
+    it('asks the Contents API for the file itself, on a pinned API version', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            token: `  ${TOKEN}\n`,
+            fetchImpl: fetchImpl as never
+        });
+
+        await client.fetchMarkdown('rules');
+
+        const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+        // The token arrives trimmed: an environment variable with a trailing
+        // newline must not become a malformed header GitHub rejects.
+        expect(init.headers).toEqual({
+            Accept: 'application/vnd.github.raw',
+            'X-GitHub-Api-Version': '2022-11-28',
+            Authorization: `Bearer ${TOKEN}`
+        });
+    });
+
+    it('trims a target before looking it up', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        const client = createDocsClient({repo: REPO, documents: DOCS, fetchImpl: fetchImpl as never});
+
+        await expect(client.fetchMarkdown('  rules  ')).resolves.toEqual({status: 'ok', markdown: '# Rules'});
+    });
+});
+
+describe('the standalone fetchers', () => {
+    const URL_RAW = 'https://raw.githubusercontent.com/acme-guild/handbook/HEAD/handbook/rules.md';
+    const URL_API = 'https://api.github.com/repos/acme-guild/handbook/contents/handbook/rules.md';
+
+    it('fetchRawMarkdown applies its own size limit', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('x'.repeat(11)));
+        await expect(
+            fetchRawMarkdown(URL_RAW, {maxDocumentBytes: 10, fetchImpl: fetchImpl as never})
+        ).resolves.toEqual({status: 'unavailable'});
+    });
+
+    it('fetchRawMarkdown bounds the request with an abort signal', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+        await expect(fetchRawMarkdown(URL_RAW, {fetchImpl: fetchImpl as never})).resolves.toEqual({
+            status: 'ok',
+            markdown: '# Rules'
+        });
+        const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('fetchApiMarkdown sends no Authorization header without a usable token', async () => {
+        // A public repository read through the API needs no credential, and a
+        // blank one is not a credential: `Bearer ` with nothing after it is a
+        // 401 waiting to happen.
+        for (const token of [undefined, null, '', '   ']) {
+            const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
+            await fetchApiMarkdown(URL_API, {token, fetchImpl: fetchImpl as never});
+            const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+            expect(Object.keys(init.headers as Record<string, string>), String(token)).toEqual([
+                'Accept',
+                'X-GitHub-Api-Version'
+            ]);
+        }
     });
 });
 
