@@ -126,6 +126,43 @@ export interface DocsClient {
     resolveLink(href: string, fromPath?: string): string;
 }
 
+// The body, read no further than `maxBytes`, or null when it is larger. Counted
+// in bytes as they arrive rather than as `string.length` after the fact: the
+// point of the limit is that an oversized body is never held in memory, and a
+// UTF-16 code-unit count would let a multi-byte document past it several times
+// over.
+const readBoundedText = async (
+    response: Response,
+    maxBytes: number,
+    controller: AbortController
+): Promise<string | null> => {
+    if (!response.body) {
+        // No stream to bound — an empty body, or a minimal stand-in that only
+        // offers `text()`. Still measured in bytes, so the limit means one thing.
+        const text = await response.text();
+        return new TextEncoder().encode(text).byteLength > maxBytes ? null : text;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let received = 0;
+    let text = '';
+    for (;;) {
+        const {done, value} = await reader.read();
+        if (done) {
+            return text + decoder.decode();
+        }
+        received += value.byteLength;
+        if (received > maxBytes) {
+            // Stop the transfer rather than draining it: the rest of the body
+            // is exactly what the limit exists to avoid reading.
+            void reader.cancel().catch(() => undefined);
+            controller.abort();
+            return null;
+        }
+        text += decoder.decode(value, {stream: true});
+    }
+};
+
 // One fetch, bounded by a timeout and a size limit, with every failure
 // collapsed to `unavailable`.
 const fetchMarkdown = async (
@@ -145,8 +182,8 @@ const fetchMarkdown = async (
             // intermediary might — must not be able to launder it through here.
             return {status: 'unavailable'};
         }
-        const text = await response.text();
-        if (text.length > maxBytes) {
+        const text = await readBoundedText(response, maxBytes, controller);
+        if (text === null) {
             return {status: 'unavailable'};
         }
         return {status: 'ok', markdown: text};

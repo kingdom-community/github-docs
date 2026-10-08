@@ -88,7 +88,7 @@ describe('failure is a value, not an exception', () => {
         });
     }
 
-    it('refuses a document larger than the limit rather than holding it in memory', async () => {
+    it('refuses a document larger than the limit', async () => {
         const fetchImpl = vi.fn().mockResolvedValue(okResponse('x'.repeat(101)));
         const client = createDocsClient({
             repo: REPO,
@@ -108,6 +108,76 @@ describe('failure is a value, not an exception', () => {
             fetchImpl: fetchImpl as never
         });
         await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: 'x'.repeat(100)});
+    });
+
+    it('stops reading an oversized body at the limit instead of draining it', async () => {
+        // A thousand 64-byte chunks against a 100-byte limit. Reading the whole
+        // body and then measuring it would pull every chunk; the limit is only
+        // worth having if it stops the read a chunk or two past the line.
+        let pulled = 0;
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                pulled += 1;
+                if (pulled > 1000) {
+                    controller.close();
+                    return;
+                }
+                controller.enqueue(new Uint8Array(64).fill(0x78));
+            }
+        });
+        let signal: AbortSignal | undefined;
+        const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+            signal = init?.signal ?? undefined;
+            return new Response(body, {status: 200});
+        });
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            maxDocumentBytes: 100,
+            fetchImpl: fetchImpl as never
+        });
+
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'unavailable'});
+        expect(pulled).toBeLessThan(10);
+        expect(signal?.aborted).toBe(true);
+    });
+
+    it('measures the limit in bytes, not in string length', async () => {
+        // 51 two-byte characters: 102 bytes of UTF-8, but a `length` of 51.
+        const markdown = 'é'.repeat(51);
+        for (const response of [() => okResponse(markdown), () => new Response(markdown, {status: 200})]) {
+            const fetchImpl = vi.fn().mockResolvedValue(response());
+            const client = createDocsClient({
+                repo: REPO,
+                documents: DOCS,
+                maxDocumentBytes: 100,
+                fetchImpl: fetchImpl as never
+            });
+            await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'unavailable'});
+        }
+    });
+
+    it('decodes a character split across chunks when the body is within the limit', async () => {
+        // 'é' is 0xC3 0xA9; delivering the two bytes in separate chunks is what
+        // a real network read does to a multi-byte character sooner or later.
+        const chunks = [new Uint8Array([0x23, 0x20, 0xc3]), new Uint8Array([0xa9, 0x0a])];
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                for (const chunk of chunks) {
+                    controller.enqueue(chunk);
+                }
+                controller.close();
+            }
+        });
+        const fetchImpl = vi.fn().mockResolvedValue(new Response(body, {status: 200}));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            maxDocumentBytes: 5,
+            fetchImpl: fetchImpl as never
+        });
+
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: '# é\n'});
     });
 
     it('gives up after the timeout by aborting the request', async () => {
