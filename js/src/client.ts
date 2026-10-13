@@ -268,16 +268,19 @@ export const createDocsClient = (config: DocsClientConfig): DocsClient => {
     // Resolve whatever the caller passed to a repository path, or null when the
     // catalogue refuses it. This is the gate: it runs before any URL is built,
     // so an unlisted path is never even turned into a request.
+    // An entry passes through the same gate as a string: anything with a
+    // `path` property is a `DocEntry` as far as the type system can tell, so
+    // trusting one unchecked would let a caller-built object name an unlisted
+    // or unsafe path. It is looked up by path alone, so that its path cannot
+    // match a different entry's slug.
     const pathOf = (target: DocEntry | string): string | null => {
-        if (typeof target !== 'string') {
-            return target.path;
-        }
-        const value = target.trim();
+        const isEntry = typeof target !== 'string';
+        const value = (isEntry ? target.path : target).trim();
         if (value === '') {
             return null;
         }
         if (hasCatalogue) {
-            const found = entryForSlug(documents, value) ?? entryForPath(documents, value);
+            const found = (isEntry ? null : entryForSlug(documents, value)) ?? entryForPath(documents, value);
             return found ? found.path : null;
         }
         return parseCatalogue([value])[0]?.path ?? null;

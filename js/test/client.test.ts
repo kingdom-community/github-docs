@@ -453,6 +453,28 @@ describe('the catalogue gate runs before the fetch, not after', () => {
         expect(fetchImpl).not.toHaveBeenCalled();
     });
 
+    it('refuses an entry the caller built rather than took from the catalogue', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('body'));
+        const client = createDocsClient({repo: REPO, documents: DOCS, fetchImpl: fetchImpl as never});
+
+        for (const path of ['private/plan.md', '../secrets/.env']) {
+            const entry = {slug: 'rules', path, title: 'Rules'};
+            await expect(client.fetchMarkdown(entry), path).resolves.toEqual({status: 'not-listed'});
+            expect(() => client.webUrl(entry), path).toThrowError(/not a published document/);
+        }
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('looks an entry up by its path, not by a slug its path happens to spell', async () => {
+        const fetchImpl = vi.fn();
+        const client = createDocsClient({repo: REPO, documents: DOCS, fetchImpl: fetchImpl as never});
+
+        await expect(client.fetchMarkdown({slug: 'x', path: 'rules', title: 'X'})).resolves.toEqual({
+            status: 'not-listed'
+        });
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
     it('publishes nothing when the catalogue is configured but empty', async () => {
         const fetchImpl = vi.fn();
         const client = createDocsClient({repo: REPO, documents: [], fetchImpl: fetchImpl as never});
@@ -472,6 +494,10 @@ describe('the catalogue gate runs before the fetch, not after', () => {
         });
         // Still not a traversal, though: an unsafe path is not a path.
         await expect(client.fetchMarkdown('../../etc/passwd')).resolves.toEqual({status: 'not-listed'});
+        await expect(
+            client.fetchMarkdown({slug: 'passwd', path: '../../etc/passwd', title: 'Passwd'})
+        ).resolves.toEqual({status: 'not-listed'});
+        expect(fetchImpl).toHaveBeenCalledOnce();
     });
 });
 
