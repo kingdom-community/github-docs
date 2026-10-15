@@ -54,10 +54,12 @@ if (result.status === 'ok') {
 Two rules run through all of it, and they are the reason it is worth installing
 rather than writing four lines of `fetch`:
 
-1. **Failure is a value, not an exception.** Every function returns a
-   discriminated result. GitHub having a bad minute produces a readable panel
-   and an HTTP 200, never a 5xx. A page that has to remember to catch is a page
-   that will one day forget.
+1. **Failure is a value, not an exception.** `fetchMarkdown` never rejects:
+   every way a fetch can go wrong comes back as a discriminated result. GitHub
+   having a bad minute produces a readable panel and an HTTP 200, never a 5xx.
+   A page that has to remember to catch is a page that will one day forget.
+   (What does throw is configuration: an unusable `repo` when the client is
+   built, and `webUrl` / `rawUrl` for a target that is not in the catalogue.)
 2. **Nothing upstream is ever quoted back.** No response body, no header, no
    request URL, and above all no token appears in a returned value or in an
    error. There is no path by which a GitHub error page reaches your HTML.
@@ -76,6 +78,8 @@ pip install github-docs
 ```
 
 ```python
+import os
+
 from github_docs import GitHubDocsClient, GitHubDocsConfig
 
 docs = GitHubDocsClient(GitHubDocsConfig(
