@@ -305,6 +305,27 @@ class TestManagedPaths(unittest.TestCase):
                 self.client.save_file("infrastructure/main.tf", "x", "someone")
         urlopen.assert_not_called()
 
+    def test_an_extension_the_listing_hides_cannot_be_read_or_saved(self):
+        # The listing is not the boundary: a caller that names the path
+        # directly must meet the same filter.
+        urlopen = mock.MagicMock()
+        with mock.patch("urllib.request.urlopen", urlopen):
+            with self.assertRaises(GitHubDocsError) as read:
+                self.client.get_file("handbook/logo.png")
+            with self.assertRaises(GitHubDocsError) as save:
+                self.client.save_file("handbook/build.sh", "x", "someone")
+        urlopen.assert_not_called()
+        self.assertEqual(read.exception.status, 400)
+        self.assertEqual(save.exception.status, 400)
+        self.assertIn(".md", str(save.exception))
+
+    def test_a_configured_extension_passes_the_gate(self):
+        client = make_client(extensions=(".md", ".png"))
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            doc = client.get_file("handbook/logo.png")
+        self.assertEqual(doc.path, "handbook/logo.png")
+
 
 class TestBranchNaming(unittest.TestCase):
     def setUp(self):
