@@ -283,7 +283,12 @@ class GitHubDocsClient:
     # -- Paths --------------------------------------------------------------
 
     def is_managed(self, path: str) -> bool:
-        """Whether this client may read or write ``path``."""
+        """Whether ``path`` is a safe path under the managed roots.
+
+        Says nothing about file type: a read or write also needs ``path`` to
+        end in one of ``extensions``, which ``get_file`` and ``save_file``
+        check separately.
+        """
         if not _is_safe_path(path):
             return False
         roots = self.config.allowed_roots
