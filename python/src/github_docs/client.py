@@ -296,6 +296,15 @@ class GitHubDocsClient:
             roots = self.config.allowed_roots
             where = "the repository" if roots is None else f"the managed paths {roots}"
             raise GitHubDocsError(f"{path!r} is outside {where}", status=400)
+        # Checked here rather than in is_managed, which also answers for a
+        # root directory. A file the listing hides must not still be readable
+        # and overwritable by a caller that names its path -- which is exactly
+        # what a form posting a path field does.
+        if not path.endswith(self.config.extensions):
+            raise GitHubDocsError(
+                self._redact(f"{path!r} is not one of the managed file types {self.config.extensions}"),
+                status=400,
+            )
 
     def branch_name_for(self, path: str) -> str:
         """The per-file branch a save to ``path`` commits to."""
