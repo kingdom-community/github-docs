@@ -75,6 +75,8 @@ class FakeGitHub:
         self.default_branch = "main"
         self.branch_exists = False
         self.branch_file_sha = "filesha-onbranch"
+        self.file_exists = True
+        self.put_error = None  # an HTTPError the content PUT raises instead of committing
         self.default_branch_sha = "sha-on-main"
         self.open_prs = []  # dicts with html_url/number
         self.created_refs = []
@@ -118,6 +120,8 @@ class FakeGitHub:
             return _response({"ref": body["ref"]}, status=201)
 
         if method == "GET" and "/contents/" in url:
+            if not self.file_exists:
+                raise _http_error()
             return _response(
                 {
                     "content": base64.b64encode(b"old content").decode(),
@@ -127,6 +131,8 @@ class FakeGitHub:
             )
 
         if method == "PUT" and "/contents/" in url:
+            if self.put_error is not None:
+                raise self.put_error
             self.put_calls.append(json.loads(req.data))
             return _response({"content": {"sha": "newsha"}}, status=200)
 
@@ -489,6 +495,63 @@ class TestSaveFileCreatesBranchAndPr(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=fake):
             self.client.save_file("handbook/example.md", "content", "someone")
         self.assertEqual(fake.put_calls[0]["sha"], "filesha-onbranch")
+
+    def _query_of(self, fake, method, fragment):
+        urls = [url for m, url, _ in fake.requests if m == method and fragment in url]
+        self.assertEqual(len(urls), 1, f"expected one {method} {fragment} request")
+        return urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)
+
+    def test_the_files_sha_is_read_from_the_branch_not_the_default_branch(self):
+        # The sha the PUT carries has to be the branch's, or a second save
+        # conflicts with the first one's commit.
+        fake = FakeGitHub(self.client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            self.client.save_file("handbook/example.md", "content", "someone")
+        query = self._query_of(fake, "GET", "/contents/")
+        self.assertEqual(query["ref"], ["docs-edit/handbook-example.md"])
+
+    def test_the_open_pr_lookup_is_scoped_to_the_owner_and_the_branch(self):
+        # GitHub's `head` filter takes `owner:branch`; a bare branch name is not
+        # that filter, and a save could adopt an open PR from another branch.
+        fake = FakeGitHub(self.client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            self.client.save_file("handbook/example.md", "content", "someone")
+        query = self._query_of(fake, "GET", "/pulls")
+        self.assertEqual(query["head"], ["acme-guild:docs-edit/handbook-example.md"])
+        self.assertEqual(query["state"], ["open"])
+
+
+class TestSaveFileFailures(unittest.TestCase):
+    def setUp(self):
+        self.client = make_client()
+
+    def test_a_path_with_no_file_raises_404_before_anything_is_committed(self):
+        # The README's documented behaviour: save_file edits an existing file,
+        # and the per-file branch created first is left behind.
+        fake = FakeGitHub(self.client)
+        fake.file_exists = False
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.save_file("handbook/example.md", "content", "someone")
+        self.assertEqual(ctx.exception.status, 404)
+        self.assertEqual(fake.put_calls, [])
+        self.assertEqual(fake.created_prs, [])
+        self.assertEqual(len(fake.created_refs), 1, "the branch is created before the read fails")
+
+    def test_a_conflict_on_the_commit_surfaces_its_status_and_opens_no_pr(self):
+        # Someone else saved to the branch between the sha read and the PUT.
+        fake = FakeGitHub(self.client)
+        fake.put_error = _http_error(code=409, message="is at abc but expected def")
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.save_file("handbook/example.md", "content", "someone")
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("expected def", str(ctx.exception))
+        self.assertEqual(fake.created_prs, [])
+        self.assertFalse(
+            any(method == "GET" and "/pulls" in url for method, url, _ in fake.requests),
+            "no PR lookup should follow a commit that did not land",
+        )
 
 
 class TestCredentialHandling(unittest.TestCase):
