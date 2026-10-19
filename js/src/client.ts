@@ -250,8 +250,10 @@ export const fetchApiMarkdown = async (
 /**
  * Build a reader for one repository.
  *
- * Throws only here, and only for configuration that cannot describe a
- * repository. After construction every failure is a value.
+ * Throws here only for configuration that cannot describe a repository. After
+ * construction `fetchMarkdown` returns every failure as a value. The one other
+ * throw is from `webUrl` and `rawUrl`, for a target the catalogue refuses,
+ * because that is the caller's own value, not anything upstream.
  */
 export const createDocsClient = (config: DocsClientConfig): DocsClient => {
     const repo = requireRepoSlug(config.repo);
