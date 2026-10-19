@@ -34,8 +34,8 @@ describe('parseRepoSlug', () => {
         }
     });
 
-    // The one place this package throws, and it throws on the caller's own
-    // configuration rather than on anything upstream.
+    // It throws on the caller's own configuration rather than on anything
+    // upstream, so quoting the value back is safe.
     it('throws from requireRepoSlug, quoting only the value the caller passed', () => {
         expect(() => requireRepoSlug('not a repo')).toThrowError(/"not a repo"/);
     });

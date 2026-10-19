@@ -42,10 +42,12 @@ export const parseRepoSlug = (value: string | undefined | null): string | null =
 /**
  * The same as {@link parseRepoSlug}, but throws on an unusable value.
  *
- * This is the one place in the package that throws, and it does so at
- * construction time rather than at fetch time: a misconfigured repository is a
- * deployment mistake to fix, not an upstream outage to render a panel about.
- * Once a client exists, every later failure is a value.
+ * A client calls it at construction time rather than at fetch time: a
+ * misconfigured repository is a deployment mistake to fix, not an upstream
+ * outage to render a panel about. The URL builders that take a slug call it
+ * too, so they throw on the same bad value. Once a client exists,
+ * `fetchMarkdown` returns every failure as a value; `webUrl` and `rawUrl` still
+ * throw, but only for a target that is not in the catalogue.
  */
 export const requireRepoSlug = (value: string | undefined | null): string => {
     const slug = parseRepoSlug(value);
