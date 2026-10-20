@@ -322,6 +322,15 @@ describe('configuration reaches the request', () => {
         expect(createDocsClient({repo: REPO, ref: '   '}).ref).toBe('HEAD');
     });
 
+    it('refuses a ref that cannot be put in a URL when the client is built', () => {
+        // A lone surrogate makes `encodeURIComponent` throw. Caught here, it is
+        // a configuration error; missed, it would be a rejected fetchMarkdown.
+        expect(() => createDocsClient({repo: REPO, ref: 'v1\uD800'})).toThrowError(/not a usable git ref/);
+        expect(() => createDocsClient({repo: REPO, token: TOKEN, ref: '\uDFFFv1'})).toThrowError(
+            /not a usable git ref/
+        );
+    });
+
     it('passes a non-default ref to the Contents API as a query parameter', async () => {
         const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules'));
         const client = createDocsClient({
