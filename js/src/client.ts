@@ -247,17 +247,34 @@ export const fetchApiMarkdown = async (
     );
 };
 
+// The ref, or a throw when it cannot be put in a URL. A lone UTF-16 surrogate
+// makes `encodeURIComponent` throw, and the URL is built inside
+// `fetchMarkdown`'s async body, so without this check a malformed ref — one
+// read from an environment variable through a broken decoder, say — would
+// surface as a rejected promise on every fetch instead of once, here, as the
+// configuration mistake it is.
+const requireRef = (ref: string): string => {
+    try {
+        encodeURIComponent(ref);
+    } catch {
+        // The caller's own configuration, so quoting it back is safe.
+        throw new Error(`github-docs: ${JSON.stringify(ref)} is not a usable git ref`);
+    }
+    return ref;
+};
+
 /**
  * Build a reader for one repository.
  *
- * Throws here only for configuration that cannot describe a repository. After
- * construction `fetchMarkdown` returns every failure as a value. The one other
- * throw is from `webUrl` and `rawUrl`, for a target the catalogue refuses,
- * because that is the caller's own value, not anything upstream.
+ * Throws here only for configuration that cannot describe a repository or a
+ * ref. After construction `fetchMarkdown` returns every failure as a value.
+ * The one other throw is from `webUrl` and `rawUrl`, for a target the
+ * catalogue refuses, because that is the caller's own value, not anything
+ * upstream.
  */
 export const createDocsClient = (config: DocsClientConfig): DocsClient => {
     const repo = requireRepoSlug(config.repo);
-    const ref = config.ref?.trim() || DEFAULT_REF;
+    const ref = requireRef(config.ref?.trim() || DEFAULT_REF);
     const token = config.token?.trim() || null;
     const transport: Transport = config.transport ?? (token ? 'api' : 'raw');
     const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
