@@ -92,6 +92,7 @@ class FakeGitHub:
             {"type": "blob", "path": "README.md", "sha": "s5", "size": 50},
             {"type": "tree", "path": "handbook", "sha": "s6"},
         ]
+        self.tree_truncated = False
 
     def __call__(self, req, timeout=None):
         method = req.get_method()
@@ -111,7 +112,7 @@ class FakeGitHub:
             raise _http_error()
 
         if method == "GET" and "/git/trees/" in url:
-            return _response({"tree": self.tree})
+            return _response({"tree": self.tree, "truncated": self.tree_truncated})
 
         if method == "POST" and url.endswith("/git/refs"):
             body = json.loads(req.data)
@@ -385,6 +386,18 @@ class TestListDocuments(unittest.TestCase):
         self.assertEqual([f.path for f in files], ["handbook/c.md"])
         self.assertEqual(files[0].size, 0)
 
+    def test_a_truncated_tree_is_refused_rather_than_listed_in_part(self):
+        # GitHub still returns the entries that fitted, so a partial listing
+        # would look complete to the editor.
+        client = make_client()
+        fake = FakeGitHub(client)
+        fake.tree_truncated = True
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                client.list_documents()
+        self.assertIn("too large", str(ctx.exception))
+        self.assertIsNone(ctx.exception.status)
+
 
 class TestGetFile(unittest.TestCase):
     def test_decodes_the_base64_envelope(self):
@@ -405,6 +418,16 @@ class TestGetFile(unittest.TestCase):
                 client.get_file("handbook/example.md")
         self.assertIn("unexpected content encoding", str(ctx.exception))
         self.assertIn("none", str(ctx.exception))
+
+    def test_a_directory_is_refused_as_not_a_file(self):
+        # The Contents API lists a directory's entries instead of returning a
+        # file, and a directory may be named like a document.
+        client = make_client()
+        listing = _response([{"type": "file", "path": "handbook/archive.md/old.md", "sha": "s1"}])
+        with mock.patch("urllib.request.urlopen", return_value=listing):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                client.get_file("handbook/archive.md")
+        self.assertIn("'handbook/archive.md' is not a file", str(ctx.exception))
 
     def test_bytes_that_are_not_utf8_are_replaced_rather_than_raising(self):
         # A markdown file saved in latin-1 should still open in the editor,

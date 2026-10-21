@@ -348,6 +348,13 @@ class GitHubDocsClient:
         _, tree = self._request(
             "GET", f"/repos/{self.config.repo}/git/trees/{urllib.parse.quote(default_branch)}?recursive=1"
         )
+        if tree.get("truncated"):
+            # GitHub caps a recursive tree and flags the cut rather than
+            # failing. Returning what fitted would hide documents from the
+            # editor with nothing to say why, so the caller is told instead.
+            raise GitHubDocsError(
+                self._redact("the repository tree is too large for GitHub to list in full")
+            )
         files: List[DocumentSummary] = []
         for entry in tree.get("tree", []):
             if entry.get("type") != "blob":
@@ -364,6 +371,10 @@ class GitHubDocsClient:
         _, data = self._request(
             "GET", f"/repos/{self.config.repo}/contents/{urllib.parse.quote(path)}{qs}"
         )
+        # A directory answers with a list of its entries. Its name can still
+        # end in a managed extension, so the path gates do not rule it out.
+        if not isinstance(data, dict):
+            raise GitHubDocsError(self._redact(f"{path!r} is not a file"))
         if data.get("encoding") != "base64":
             raise GitHubDocsError(f"unexpected content encoding {data.get('encoding')!r} for {path}")
         content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
