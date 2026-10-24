@@ -126,8 +126,11 @@ a control that depends on somebody else's behaviour is not a control.
 
 - `GitHubDocsConfig(...)` — configuration.
 - `GitHubDocsClient(config)`
-  - `.list_documents() -> list[DocumentSummary]`
-  - `.get_file(path, ref=None) -> Document`
+  - `.list_documents() -> list[DocumentSummary]` — raises `GitHubDocsError`
+    rather than returning part of the list when GitHub truncates the
+    repository tree.
+  - `.get_file(path, ref=None) -> Document` — raises `GitHubDocsError` for a
+    path that is a directory, not a file.
   - `.save_file(path, content, author, message=None) -> SaveResult`
   - `.is_managed(path) -> bool`
   - `.branch_name_for(path) -> str`
