@@ -300,7 +300,7 @@ class GitHubDocsClient:
         if not self.is_managed(path):
             roots = self.config.allowed_roots
             where = "the repository" if roots is None else f"the managed paths {roots}"
-            raise GitHubDocsError(f"{path!r} is outside {where}", status=400)
+            raise GitHubDocsError(self._redact(f"{path!r} is outside {where}"), status=400)
         # Checked here rather than in is_managed, which also answers for a
         # root directory. A file the listing hides must not still be readable
         # and overwritable by a caller that names its path -- which is exactly
@@ -376,7 +376,9 @@ class GitHubDocsClient:
         if not isinstance(data, dict):
             raise GitHubDocsError(self._redact(f"{path!r} is not a file"))
         if data.get("encoding") != "base64":
-            raise GitHubDocsError(f"unexpected content encoding {data.get('encoding')!r} for {path}")
+            raise GitHubDocsError(
+                self._redact(f"unexpected content encoding {data.get('encoding')!r} for {path}")
+            )
         content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
         return Document(path=path, content=content, sha=data["sha"])
 
@@ -411,7 +413,9 @@ class GitHubDocsClient:
         if branch_sha is None:
             base_sha = self.get_ref_sha(default_branch)
             if base_sha is None:
-                raise GitHubDocsError(f"default branch {default_branch!r} has no tip commit")
+                raise GitHubDocsError(
+                    self._redact(f"default branch {default_branch!r} has no tip commit")
+                )
             self.create_ref(branch, base_sha)
 
         # Current sha of the file ON THE BRANCH: the Contents API needs it to
