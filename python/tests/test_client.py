@@ -606,6 +606,35 @@ class TestCredentialHandling(unittest.TestCase):
         self.assertIn("***", str(ctx.exception))
         self.assertEqual(ctx.exception.status, 401)
 
+    def test_an_upstream_content_encoding_that_echoes_the_token_is_redacted(self):
+        # The encoding is quoted back from the response, so it is upstream text
+        # like any error message, and meets the same filter.
+        envelope = _response({"content": "", "encoding": f"none-{TOKEN}", "sha": "s1"})
+        with mock.patch("urllib.request.urlopen", return_value=envelope):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.get_file("handbook/example.md")
+        self.assertNotIn(TOKEN, str(ctx.exception))
+        self.assertIn("unexpected content encoding", str(ctx.exception))
+
+    def test_a_default_branch_name_that_echoes_the_token_is_redacted(self):
+        # The branch name comes from the repository lookup. A tip-less default
+        # branch is not reachable through the fake API, because a missing ref
+        # already raises, so the two lookups are stubbed directly.
+        with mock.patch.object(self.client, "get_default_branch", return_value=f"main-{TOKEN}"):
+            with mock.patch.object(self.client, "get_ref_sha", return_value=None):
+                with self.assertRaises(GitHubDocsError) as ctx:
+                    self.client.save_file("handbook/example.md", "content", "someone")
+        self.assertNotIn(TOKEN, str(ctx.exception))
+        self.assertIn("has no tip commit", str(ctx.exception))
+
+    def test_a_refused_path_that_carries_the_token_is_redacted(self):
+        # The path is the caller's, but a form field is somebody else's typing,
+        # and the README promises the token is stripped from any error text.
+        with self.assertRaises(GitHubDocsError) as ctx:
+            self.client.get_file(f"infrastructure/{TOKEN}.md")
+        self.assertNotIn(TOKEN, str(ctx.exception))
+        self.assertEqual(ctx.exception.status, 400)
+
 
 class TestErrorSurface(unittest.TestCase):
     def setUp(self):
