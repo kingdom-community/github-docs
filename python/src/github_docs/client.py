@@ -176,10 +176,16 @@ class GitHubDocsConfig:
 def _is_safe_path(path: str) -> bool:
     """A path this client is willing to send to GitHub.
 
-    Deliberately narrow. Anything with an empty, ``.`` or ``..`` segment, a
-    leading slash, a backslash, a scheme or whitespace is not a path in a
-    repository, and is refused rather than escaped -- a path that needs
-    escaping is a typo or an attack, and neither should reach the network.
+    Anything with an empty, ``.`` or ``..`` segment, a leading slash, a
+    backslash or whitespace at either end is not a path in a repository, and
+    is refused rather than repaired -- a path shaped like that is a typo or an
+    attack, and neither should reach the network. A URL is refused only
+    because its ``//`` makes an empty segment.
+
+    Every other character a filename may hold -- a space inside the name, a
+    colon, a ``#`` or ``?`` -- is allowed, because real documents are named
+    that way. ``urllib.parse.quote`` percent-encodes it into the request URL,
+    so it cannot become a query string or a fragment on the way out.
     """
     if not path or path != path.strip() or path.startswith("/") or "\\" in path:
         return False

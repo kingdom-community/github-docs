@@ -429,6 +429,17 @@ class TestGetFile(unittest.TestCase):
                 client.get_file("handbook/archive.md")
         self.assertIn("'handbook/archive.md' is not a file", str(ctx.exception))
 
+    def test_characters_a_filename_may_hold_are_encoded_rather_than_refused(self):
+        # A space is what slugify_path is written for, and a `#` or `?` in a
+        # filename must not turn into a fragment or a query string on the way
+        # out.
+        client = make_client()
+        fake = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            client.get_file("handbook/the rules: #1?.md")
+        _, url, _ = fake.requests[0]
+        self.assertTrue(url.endswith("/contents/handbook/the%20rules%3A%20%231%3F.md"), url)
+
     def test_bytes_that_are_not_utf8_are_replaced_rather_than_raising(self):
         # A markdown file saved in latin-1 should still open in the editor,
         # mangled at the bad byte, rather than taking the page down.
