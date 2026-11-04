@@ -172,11 +172,11 @@ class GitHubDocsConfig:
         # the default.
         token = (self.token or "").strip()
         if not _TOKEN_RE.fullmatch(token):
-            # Refused here because http.client would otherwise refuse it on the
-            # first request, with a ValueError that quotes the whole header.
-            # Unlike the repo above, this value is a secret, so it is not
-            # quoted back.
-            raise ValueError("github-docs: token holds a character an HTTP header cannot carry")
+            # Every real token is printable ASCII. Refused here because a line
+            # break would otherwise reach http.client on the first request, and
+            # its ValueError quotes the whole header. Unlike the repo above,
+            # this value is a secret, so it is not quoted back.
+            raise ValueError("github-docs: token holds a character that is not printable ASCII")
         object.__setattr__(self, "token", token)
         if self.allowed_roots is not None:
             object.__setattr__(

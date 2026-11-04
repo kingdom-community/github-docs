@@ -190,7 +190,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(client.config.token, TOKEN)
         self.assertEqual(github.requests[0][2]["Authorization"], f"Bearer {TOKEN}")
 
-    def test_refuses_a_token_a_header_cannot_carry_without_quoting_it(self):
+    def test_refuses_a_token_that_is_not_printable_ascii_without_quoting_it(self):
         # Left to the first request, http.client raises a ValueError quoting the
         # header, and that escapes every handler in _request with the token in it.
         for bad in [f"{TOKEN}\nX-Injected: 1", f"{TOKEN}\rmore", f"{TOKEN}\x00more", f"{TOKEN}€"]:
