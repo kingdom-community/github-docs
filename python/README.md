@@ -87,7 +87,7 @@ side door just because the edit arrived from a web form.
 | Field | Default | What it does |
 |---|---|---|
 | `repo` | *(required)* | `owner/repo`. Validated on construction. |
-| `token` | `""` | A GitHub personal access token. Needs `repo`, or fine-grained Contents + Pull-requests read/write on the one repository. |
+| `token` | `""` | A GitHub personal access token. Needs `repo`, or fine-grained Contents + Pull-requests read/write on the one repository. Whitespace at either end is stripped, and a blank or `None` token counts as none. A token holding anything but printable ASCII raises `ValueError` on construction, without being quoted. Left out of the config's `repr`. |
 | `allowed_roots` | `None` | Path roots this client may touch. `None` means the whole repository; an **empty tuple means nothing**, which is the safe reading of "not filled in yet". |
 | `extensions` | `(".md",)` | Which files are listed and edited. `get_file` and `save_file` refuse any other path with `.status` 400 before a request is made, so a file the listing hides cannot be edited by naming it. |
 | `branch_prefix` | `"docs-edit/"` | Prefix for the per-file branch. |

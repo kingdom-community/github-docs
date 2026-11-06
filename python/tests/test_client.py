@@ -180,8 +180,50 @@ class TestConfig(unittest.TestCase):
         self.assertIsNone(GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=None).allowed_roots)
         self.assertEqual(GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=()).allowed_roots, ())
 
+    def test_tidies_the_whitespace_a_token_file_leaves_behind(self):
+        # http.client refuses a header value ending in a newline, so the stripped
+        # form has to be the one that reaches the Authorization header.
+        client = make_client(token=f"  {TOKEN}\n")
+        github = FakeGitHub(client)
+        with mock.patch("urllib.request.urlopen", github):
+            client.get_default_branch()
+        self.assertEqual(client.config.token, TOKEN)
+        self.assertEqual(github.requests[0][2]["Authorization"], f"Bearer {TOKEN}")
+
+    def test_refuses_a_token_that_is_not_printable_ascii_without_quoting_it(self):
+        # Left to the first request, http.client raises a ValueError quoting the
+        # header, and that escapes every handler in _request with the token in it.
+        for bad in [f"{TOKEN}\nX-Injected: 1", f"{TOKEN}\rmore", f"{TOKEN}\x00more", f"{TOKEN}€"]:
+            with self.subTest(bad):
+                with self.assertRaises(ValueError) as ctx:
+                    GitHubDocsConfig(repo=REPO, token=bad)
+                self.assertNotIn(TOKEN, str(ctx.exception))
+
+    def test_repr_does_not_carry_the_token(self):
+        # A config is exactly what ends up in a log line or a captured traceback.
+        config = GitHubDocsConfig(repo=REPO, token=TOKEN)
+        self.assertNotIn(TOKEN, repr(config))
+        self.assertIn(REPO, repr(config))
+
 
 class TestNoTokenConfigured(unittest.TestCase):
+    def test_a_blank_token_counts_as_no_token(self):
+        # A token variable set to whitespace must not go out as a bearer of nothing.
+        client = make_client(token=" \n")
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            with self.assertRaises(GitHubDocsError) as ctx:
+                client.get_default_branch()
+        self.assertIn("no GitHub token", str(ctx.exception))
+        urlopen.assert_not_called()
+
+    def test_a_token_of_none_counts_as_no_token(self):
+        # What os.environ.get hands back for an unset secret. A refused path
+        # reaches _redact before any request, so None has to survive that too.
+        client = make_client(token=None)
+        with self.assertRaises(GitHubDocsError) as ctx:
+            client.get_file("infrastructure/main.md")
+        self.assertEqual(ctx.exception.status, 400)
+
     def test_raises_a_clear_error_when_the_token_is_missing(self):
         client = make_client(token="")
         with self.assertRaises(GitHubDocsError) as ctx:

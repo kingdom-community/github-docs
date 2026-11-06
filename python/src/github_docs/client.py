@@ -34,7 +34,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 __all__ = [
@@ -63,6 +63,7 @@ class GitHubDocsError(Exception):
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+_TOKEN_RE = re.compile(r"[\x20-\x7e]*")
 
 
 def slugify_path(path: str) -> str:
@@ -121,7 +122,10 @@ class GitHubDocsConfig:
     repo: str
 
     #: A personal access token for a bot or service account.
-    token: str = ""
+    #:
+    #: Kept out of ``repr``, so a config that lands in a log line or a captured
+    #: traceback does not carry the credential with it.
+    token: str = field(default="", repr=False)
 
     #: The path roots this client is willing to touch, e.g.
     #: ``("handbook", "policies")``.
@@ -161,6 +165,19 @@ class GitHubDocsConfig:
             # the only way this is debuggable.
             raise ValueError(f"github-docs: {self.repo!r} is not an 'owner/repo' repository slug")
         object.__setattr__(self, "repo", repo)
+        # Settled once here, so the header, the "is one configured" check and
+        # _redact all agree on what the token is. One read from a file usually
+        # arrives with a trailing newline, and None is what os.environ.get
+        # hands back for an unset secret: that means "no token", the same as
+        # the default.
+        token = (self.token or "").strip()
+        if not _TOKEN_RE.fullmatch(token):
+            # Every real token is printable ASCII. Refused here because a line
+            # break would otherwise reach http.client on the first request, and
+            # its ValueError quotes the whole header. Unlike the repo above,
+            # this value is a secret, so it is not quoted back.
+            raise ValueError("github-docs: token holds a character that is not printable ASCII")
+        object.__setattr__(self, "token", token)
         if self.allowed_roots is not None:
             object.__setattr__(
                 self,
@@ -213,7 +230,7 @@ class GitHubDocsClient:
         but a proxy or a future API might, and a control that depends on
         somebody else's behaviour is not a control.
         """
-        token = self.config.token.strip()
+        token = self.config.token
         return text.replace(token, "***") if token else text
 
     def _request(
