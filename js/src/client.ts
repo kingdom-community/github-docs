@@ -50,11 +50,14 @@ export type MarkdownFetch =
     // what to say about an upstream status, which is the beginning of quoting
     // upstream back.
     | {status: 'unavailable'}
-    // Asked for a document from a private repository with no token configured.
+    // The `api` transport with no token configured, so no request was made.
     // Distinct from `unavailable` because it is a deployment state rather than
     // an outage, and the panel should say so: nobody is served by telling an
     // operator that GitHub is down when the truth is that they never set the
-    // secret.
+    // secret. Only an explicit `transport: 'api'` gets here: left to the
+    // default, a missing token selects `raw`, because a private repository
+    // cannot be told from a public one without asking, and a private one then
+    // reports `unavailable`.
     | {status: 'not-configured'}
     // The path is not in the catalogue. Also a deployment state rather than an
     // outage, and no request was made. A site normally turns this into a 404.
@@ -120,7 +123,11 @@ export interface DocsClient {
     fetchMarkdown(target: DocEntry | string): Promise<MarkdownFetch>;
     /** Where a reader is sent when the fetch fails. */
     webUrl(target: DocEntry | string): string;
-    /** The plain-text URL this client would fetch. */
+    /**
+     * The document's plain-text URL on the raw host, which is what this client
+     * fetches under the `raw` transport. The `api` transport fetches the
+     * Contents API instead, and this still answers the raw URL.
+     */
     rawUrl(target: DocEntry | string): string;
     /** Rewrite a link found inside a fetched document. See `resolveDocLink`. */
     resolveLink(href: string, fromPath?: string): string;
