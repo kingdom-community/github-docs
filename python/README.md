@@ -76,6 +76,11 @@ on the branch fails that read, and `save_file` raises `GitHubDocsError` with
 `.status` 404 before anything is committed — though a per-file branch created
 in step 2 is left behind.
 
+Text that cannot be encoded as UTF-8 never reaches step 1. A lone surrogate,
+which `json.loads` returns for an escape such as `"\ud800"`, is refused with
+`.status` 400 before any request, whether it is in `path` or in `content`, so
+no branch is created for it.
+
 The default branch is never written to. That is the whole point: a doc repo
 whose history already goes through review for every change should not grow a
 side door just because the edit arrived from a web form.

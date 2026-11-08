@@ -203,8 +203,17 @@ def _is_safe_path(path: str) -> bool:
     colon, a ``#`` or ``?`` -- is allowed, because real documents are named
     that way. ``urllib.parse.quote`` percent-encodes it into the request URL,
     so it cannot become a query string or a fragment on the way out.
+
+    A path that cannot be encoded as UTF-8 is refused too. ``json.loads``
+    turns the escape ``"\\ud800"`` into a lone surrogate, so a form post can
+    deliver one, and ``quote`` would otherwise raise a ``UnicodeEncodeError``
+    that no caller catching ``GitHubDocsError`` expects.
     """
     if not path or path != path.strip() or path.startswith("/") or "\\" in path:
+        return False
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
         return False
     segments = path.split("/")
     return all(segment not in ("", ".", "..") for segment in segments)
@@ -428,6 +437,17 @@ class GitHubDocsClient:
         as further commits on the same branch and the same open PR.
         """
         self._require_managed(path)
+        # Encoded before the first request rather than when the commit body is
+        # built: by then the per-file branch exists, and content that cannot be
+        # sent would leave it behind and escape as a UnicodeEncodeError. The
+        # content is not quoted back; only where it went wrong.
+        try:
+            encoded = content.encode("utf-8")
+        except UnicodeEncodeError as e:
+            raise GitHubDocsError(
+                self._redact(f"the content cannot be encoded as UTF-8 (at character {e.start})"),
+                status=400,
+            ) from e
 
         default_branch = self.get_default_branch()
         branch = self.branch_name_for(path)
@@ -449,7 +469,7 @@ class GitHubDocsClient:
         commit_message = message or self.config.commit_message_template.format(path=path, author=author)
         body = {
             "message": commit_message,
-            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "content": base64.b64encode(encoded).decode("ascii"),
             "sha": existing.sha,
             "branch": branch,
         }
