@@ -368,6 +368,22 @@ class TestManagedPaths(unittest.TestCase):
         self.assertEqual(save.exception.status, 400)
         self.assertIn(".md", str(save.exception))
 
+    def test_a_path_that_cannot_be_encoded_is_refused_before_a_request(self):
+        # json.loads hands back a lone surrogate for the escape "\ud800", so a
+        # form post can deliver one. It has to meet the same 400 as any other
+        # unusable path, not escape quote() as a UnicodeEncodeError.
+        path = "handbook/a\ud800.md"
+        self.assertFalse(self.client.is_managed(path))
+        urlopen = mock.MagicMock()
+        with mock.patch("urllib.request.urlopen", urlopen):
+            with self.assertRaises(GitHubDocsError) as read:
+                self.client.get_file(path)
+            with self.assertRaises(GitHubDocsError) as save:
+                self.client.save_file(path, "content", "someone")
+        urlopen.assert_not_called()
+        self.assertEqual(read.exception.status, 400)
+        self.assertEqual(save.exception.status, 400)
+
     def test_a_configured_extension_passes_the_gate(self):
         client = make_client(extensions=(".md", ".png"))
         fake = FakeGitHub(client)
@@ -628,6 +644,19 @@ class TestSaveFileFailures(unittest.TestCase):
             any(method == "GET" and "/pulls" in url for method, url, _ in fake.requests),
             "no PR lookup should follow a commit that did not land",
         )
+
+    def test_content_that_cannot_be_encoded_is_refused_before_a_request(self):
+        # Refused up front, so no per-file branch is left behind on GitHub and
+        # a caller catching GitHubDocsError sees the failure. The content is
+        # not quoted back.
+        urlopen = mock.MagicMock()
+        with mock.patch("urllib.request.urlopen", urlopen):
+            with self.assertRaises(GitHubDocsError) as ctx:
+                self.client.save_file("handbook/example.md", "secret-draft \ud800", "someone")
+        urlopen.assert_not_called()
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertIn("UTF-8", str(ctx.exception))
+        self.assertNotIn("secret-draft", str(ctx.exception))
 
 
 class TestCredentialHandling(unittest.TestCase):
