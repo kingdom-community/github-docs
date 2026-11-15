@@ -118,4 +118,27 @@ describe('isExternalUrl', () => {
         expect(isExternalUrl('#anchor')).toBe(false);
         expect(isExternalUrl('mailto:a@b.c')).toBe(false);
     });
+
+    it('reads a backslash the way a browser does, as a slash', () => {
+        // Each of these is returned unchanged by safeLinkUrl and lands on
+        // example.com in a browser, so each must get the external treatment.
+        for (const href of ['/\\example.com/a', '\\\\example.com/a', '\\/example.com/a', 'https:\\\\example.com/a']) {
+            expect(safeLinkUrl(href), href).toBe(href);
+            expect(isExternalUrl(href), href).toBe(true);
+        }
+    });
+
+    it('treats an http or https prefix as external whatever slashes follow', () => {
+        // Relative only when the page's scheme matches, which is not knowable
+        // here, so the answer leans to the side that cannot leak an opener.
+        for (const href of ['http:example.com', 'https:/example.com', 'HTTPS:example.com']) {
+            expect(isExternalUrl(href), href).toBe(true);
+        }
+    });
+
+    it('still reads a path, including one with an inner backslash, and an anchor as internal', () => {
+        for (const href of ['/handbook/a.md', 'handbook/a.md', './a.md', '../a.md', '#anchor', '/a\\b']) {
+            expect(isExternalUrl(href), href).toBe(false);
+        }
+    });
 });

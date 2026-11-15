@@ -117,5 +117,14 @@ export const safeImageUrl = (src: string | undefined | null): string | null => {
  * Whether a resolved URL leaves the current site, and therefore needs
  * `target="_blank"` and `rel="noopener noreferrer"`. Relative URLs and in-page
  * anchors do not.
+ *
+ * Judged on what a browser will parse, not on the spelling. For `http:` and
+ * `https:` a browser reads `\` as `/`, so `/\example.com` and `https:\\example.com`
+ * leave the site as surely as `//example.com` does. And any `http:` or `https:`
+ * prefix counts as external whatever follows it: `http:example.com` is relative
+ * only when the page's own scheme matches, which this function cannot see.
+ * Erring that way costs a link an unneeded `target="_blank"`; erring the other
+ * way opens someone else's page in this tab without `noopener`.
  */
-export const isExternalUrl = (href: string): boolean => /^(https?:)?\/\//i.test(href.trim());
+export const isExternalUrl = (href: string): boolean =>
+    /^(https?:|\/\/)/i.test(asBrowserWouldSee(href).replace(/\\/g, '/'));
