@@ -136,8 +136,8 @@ docs.resolveLink('rules.md', 'handbook/getting-started.md');
 | `token` | none | A read token, for a private repository. Omit for a public one. |
 | `transport` | `'api'` with a token, `'raw'` without | Contents API vs `raw.githubusercontent.com`. Set `'api'` for a private repository: left to the default, a missing token selects `raw`, and every document reports `unavailable` rather than `not-configured`. |
 | `documents` | *(unset)* | The catalogue. A list, or a comma-separated string. **Unset means the whole repository is fetchable; an empty list means nothing is.** |
-| `timeoutMs` | `5000` | A page renders its panel rather than making a visitor wait on someone else's outage. |
-| `maxDocumentBytes` | `1048576` | Anything larger is not the document that was asked for. Counted in bytes of the body as it arrives, and the read stops there rather than buffering the rest. |
+| `timeoutMs` | `5000` | A page renders its panel rather than making a visitor wait on someone else's outage. A value that is `NaN`, infinite or negative is replaced by the default. |
+| `maxDocumentBytes` | `1048576` | Anything larger is not the document that was asked for. Counted in bytes of the body as it arrives, and the read stops there rather than buffering the rest. A value that is `NaN` (what `Number()` gives for an unset environment variable), infinite or negative is replaced by the default, so a misread setting cannot switch the limit off. |
 | `apiBase` | `https://api.github.com` | For GitHub Enterprise. |
 | `fetchImpl` | global `fetch` | Injectable, for tests. |
 
