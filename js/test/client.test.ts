@@ -1,6 +1,12 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 
-import {createDocsClient, fetchApiMarkdown, fetchRawMarkdown, type MarkdownFetch} from '../src/client';
+import {
+    createDocsClient,
+    DEFAULT_MAX_DOCUMENT_BYTES,
+    fetchApiMarkdown,
+    fetchRawMarkdown,
+    type MarkdownFetch
+} from '../src/client';
 
 const REPO = 'acme-guild/handbook';
 const DOCS = ['handbook/rules.md', 'handbook/getting-started.md'];
@@ -194,6 +200,73 @@ describe('failure is a value, not an exception', () => {
             fetchImpl: fetchImpl as never
         });
         await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'unavailable'});
+    });
+});
+
+describe('a limit that cannot be one falls back to the default', () => {
+    // `Number(process.env.X)` on an unset variable is NaN, and NaN answers
+    // `false` to every `>`, so a NaN passed through would switch the size limit
+    // off rather than tune it.
+    // The oversized cases compare `status` alone: were the limit off, the
+    // result would carry a megabyte of markdown, and diffing that against the
+    // expected object stalls the reporter instead of failing the test.
+    const oversized = 'x'.repeat(DEFAULT_MAX_DOCUMENT_BYTES + 1);
+
+    for (const maxDocumentBytes of [NaN, Infinity, -1]) {
+        it(`still refuses a body over the default when maxDocumentBytes is ${maxDocumentBytes}`, async () => {
+            const fetchImpl = vi.fn().mockResolvedValue(okResponse(oversized));
+            const client = createDocsClient({
+                repo: REPO,
+                documents: DOCS,
+                maxDocumentBytes,
+                fetchImpl: fetchImpl as never
+            });
+            expect((await client.fetchMarkdown('rules')).status).toBe('unavailable');
+        });
+    }
+
+    it('applies the same fallback to the standalone fetchers', async () => {
+        for (const fetcher of [fetchRawMarkdown, fetchApiMarkdown]) {
+            const fetchImpl = vi.fn().mockResolvedValue(okResponse(oversized));
+            const result = await fetcher('https://example.invalid/rules.md', {
+                maxDocumentBytes: NaN,
+                fetchImpl: fetchImpl as never
+            });
+            expect(result.status).toBe('unavailable');
+        }
+    });
+
+    it('serves a document within the default limit when maxDocumentBytes is NaN', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(okResponse('# Rules\n'));
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            maxDocumentBytes: NaN,
+            fetchImpl: fetchImpl as never
+        });
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: '# Rules\n'});
+    });
+
+    it('waits the default timeout rather than about a millisecond when timeoutMs is NaN', async () => {
+        // A NaN delay fires almost at once, so a response 50 ms away would be
+        // aborted; under the default five seconds it arrives.
+        const fetchImpl = vi.fn(
+            (_url: string, init?: RequestInit) =>
+                new Promise<Response>((resolve, reject) => {
+                    const timer = setTimeout(() => resolve(okResponse('# Rules\n')), 50);
+                    init?.signal?.addEventListener('abort', () => {
+                        clearTimeout(timer);
+                        reject(new Error('aborted'));
+                    });
+                })
+        );
+        const client = createDocsClient({
+            repo: REPO,
+            documents: DOCS,
+            timeoutMs: NaN,
+            fetchImpl: fetchImpl as never
+        });
+        await expect(client.fetchMarkdown('rules')).resolves.toEqual({status: 'ok', markdown: '# Rules\n'});
     });
 });
 

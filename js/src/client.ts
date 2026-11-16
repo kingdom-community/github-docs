@@ -41,6 +41,16 @@ export const DEFAULT_TIMEOUT_MS = 5000;
  */
 export const DEFAULT_MAX_DOCUMENT_BYTES = 1048576;
 
+// The configured limit, or the default when the value cannot be one. `??` only
+// catches `undefined` and `null`, and the usual way to read a number from the
+// environment — `Number(process.env.X)` on an unset variable — gives `NaN`,
+// which every `>` comparison answers `false`: the size limit would quietly
+// switch itself off. A negative or infinite value is no better. Falling back
+// rather than throwing keeps both promises: a fetch never rejects, and
+// `createDocsClient` throws only for a repository or ref it cannot use.
+const limitOrDefault = (value: number | undefined, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+
 export type MarkdownFetch =
     | {status: 'ok'; markdown: string}
     // Reached GitHub and did not get the document: a 404, a rate limit, a 500,
@@ -98,9 +108,16 @@ export interface DocsClientConfig {
      * safe reading of "the operator has not filled this in yet".
      */
     documents?: readonly DocEntryInput[] | string;
-    /** Defaults to {@link DEFAULT_TIMEOUT_MS}. */
+    /**
+     * Defaults to {@link DEFAULT_TIMEOUT_MS}, which is also used for a value
+     * that is `NaN`, infinite or negative.
+     */
     timeoutMs?: number;
-    /** Defaults to {@link DEFAULT_MAX_DOCUMENT_BYTES}. */
+    /**
+     * Defaults to {@link DEFAULT_MAX_DOCUMENT_BYTES}, which is also used for a
+     * value that is `NaN`, infinite or negative, so a misread setting cannot
+     * switch the limit off.
+     */
     maxDocumentBytes?: number;
     /** Override the API host. Mostly useful for a GitHub Enterprise install. */
     apiBase?: string;
@@ -216,8 +233,8 @@ export const fetchRawMarkdown = async (
         options.fetchImpl ?? fetch,
         url,
         {Accept: 'text/plain'},
-        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        options.maxDocumentBytes ?? DEFAULT_MAX_DOCUMENT_BYTES
+        limitOrDefault(options.timeoutMs, DEFAULT_TIMEOUT_MS),
+        limitOrDefault(options.maxDocumentBytes, DEFAULT_MAX_DOCUMENT_BYTES)
     );
 
 /**
@@ -249,8 +266,8 @@ export const fetchApiMarkdown = async (
         options.fetchImpl ?? fetch,
         url,
         headers,
-        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        options.maxDocumentBytes ?? DEFAULT_MAX_DOCUMENT_BYTES
+        limitOrDefault(options.timeoutMs, DEFAULT_TIMEOUT_MS),
+        limitOrDefault(options.maxDocumentBytes, DEFAULT_MAX_DOCUMENT_BYTES)
     );
 };
 
@@ -284,8 +301,8 @@ export const createDocsClient = (config: DocsClientConfig): DocsClient => {
     const ref = requireRef(config.ref?.trim() || DEFAULT_REF);
     const token = config.token?.trim() || null;
     const transport: Transport = config.transport ?? (token ? 'api' : 'raw');
-    const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const maxDocumentBytes = config.maxDocumentBytes ?? DEFAULT_MAX_DOCUMENT_BYTES;
+    const timeoutMs = limitOrDefault(config.timeoutMs, DEFAULT_TIMEOUT_MS);
+    const maxDocumentBytes = limitOrDefault(config.maxDocumentBytes, DEFAULT_MAX_DOCUMENT_BYTES);
     const apiBase = config.apiBase ?? 'https://api.github.com';
     const fetchImpl = config.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
     const hasCatalogue = config.documents !== undefined;
