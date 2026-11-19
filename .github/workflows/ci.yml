@@ -31,7 +31,11 @@ jobs:
 
   python:
     name: python (${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: no Python 3.9 build is published for Ubuntu
+    # 26.04, and 3.9 is the declared floor in pyproject.toml, so the floor
+    # would otherwise go unverified. Revisit when 24.04 is retired or the floor
+    # is raised.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: python
