@@ -174,6 +174,15 @@ class TestConfig(unittest.TestCase):
         config = GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots=("handbook", "", "  ", "/"))
         self.assertEqual(config.allowed_roots, ("handbook",))
 
+    def test_a_bare_string_of_roots_is_refused_rather_than_read_per_character(self):
+        # ("handbook") is the missing-comma typo for ("handbook",). Read as an
+        # iterable it would become one root per character, refusing the
+        # intended root and letting "k/" and "o/" through.
+        with self.assertRaises(ValueError) as caught:
+            GitHubDocsConfig(repo=REPO, token=TOKEN, allowed_roots="handbook")
+        self.assertIn("'handbook'", str(caught.exception))
+        self.assertNotIn(TOKEN, str(caught.exception))
+
     def test_normalisation_leaves_none_alone(self):
         # None and () mean opposite things, so neither may be turned into the
         # other on the way through __post_init__.
