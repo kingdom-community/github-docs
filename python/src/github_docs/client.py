@@ -178,6 +178,15 @@ class GitHubDocsConfig:
             # this value is a secret, so it is not quoted back.
             raise ValueError("github-docs: token holds a character that is not printable ASCII")
         object.__setattr__(self, "token", token)
+        if isinstance(self.allowed_roots, str):
+            # ("handbook") is a str, not a 1-tuple, and a str iterates as its
+            # characters: the intended root would be refused and every
+            # single-letter directory it spells let through. The caller's own
+            # configuration, so quoting it back is safe.
+            raise ValueError(
+                f"github-docs: allowed_roots must be a tuple of roots, not the string "
+                f"{self.allowed_roots!r} -- did you mean ({self.allowed_roots!r},)?"
+            )
         if self.allowed_roots is not None:
             object.__setattr__(
                 self,
